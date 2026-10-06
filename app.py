@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from urllib.parse import urlparse
-import requests, ssl, socket, time
+import requests, ssl, socket, time, re
 from safety import safe_get, is_safe_host
 from ratelimit import init as init_limit
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -20,6 +20,11 @@ SENSITIVE = [
     ("/.git/HEAD", "ref:", "مجلد .git غير مكشوف"),
     ("/.env", "=", "ملف .env غير مكشوف"),
 ]
+
+def leaks_info(resp):
+    if "X-Powered-By" in resp.headers:
+        return True
+    return bool(re.search(r"\d", resp.headers.get("Server", "")))
 
 def cookies_ok(resp):
     cookies = resp.raw.headers.getlist("Set-Cookie")
@@ -89,6 +94,9 @@ def scan():
 
     checks.append({"name": "الكوكيز محمية (Secure + HttpOnly)", "ok": cookies_ok(r),
                    "fix": "أضف الخاصيتين Secure وHttpOnly لكل كوكي يضبطه موقعك"})
+
+    checks.append({"name": "السيرفر لا يكشف تقنياته وإصداراته", "ok": not leaks_info(r),
+                   "fix": "أخفِ ترويسة X-Powered-By وأرقام الإصدارات من ترويسة Server حتى لا يستغلها المهاجم"})
 
     score = int(sum(c["ok"] for c in checks) / len(checks) * 100)
     return jsonify(url=raw, score=score, checks=checks)
