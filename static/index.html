@@ -3,73 +3,105 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>تقرير فحص أمان الموقع</title>
+<title>فاحص أمان المواقع</title>
 <style>
 body{background:#0d1117;color:#e6edf3;font-family:sans-serif;max-width:500px;margin:auto;padding:20px}
 h1{color:#00ff88;font-size:22px}
 input,button{width:100%;padding:12px;margin-top:10px;border-radius:8px;border:1px solid #00ff88;font-size:16px;box-sizing:border-box}
 input{background:#161b22;color:#fff;direction:ltr}
 button{background:#00ff88;color:#000;font-weight:bold}
-.score{font-size:48px;text-align:center;margin:20px 0}
-.row{padding:10px 0;border-bottom:1px solid #30363d}
-.fix{color:#f0883e;font-size:13px;margin-top:4px}
+button:disabled{opacity:.5}
+button.sec{background:transparent;color:#00ff88}
+.score{font-size:48px;text-align:center;margin:10px 0 0}
+.badge{text-align:center;font-weight:bold;margin-bottom:6px}
+.sum{text-align:center;color:#8b949e;margin-bottom:14px}
 .meta{color:#8b949e;font-size:14px;text-align:center}
-small{color:#8b949e}
+.host{direction:ltr;unicode-bidi:isolate}
+.row{padding:10px 12px;margin-top:8px;border-radius:8px;background:#161b22;border-right:4px solid #30363d}
+.row.ok{border-right-color:#00ff88}
+.row.bad{border-right-color:#ff5555}
+.fix{color:#f0883e;font-size:13px;margin-top:4px}
+small{color:#8b949e;display:block;margin-top:16px}
 @media print{
   body{background:#fff;color:#000}
   h1{color:#000}
   input,button,small{display:none}
-  .score{color:#000 !important}
-  .row{border-bottom:1px solid #ccc}
-  .fix{color:#444}
-  .meta{color:#444}
+  .score,.badge{color:#000 !important}
+  .row{background:#fff;border:1px solid #ccc}
+  .fix,.meta,.sum{color:#444}
 }
 </style>
 </head>
 <body>
-<h1>🛡️ تقرير فحص أمان الموقع</h1>
+<h1>🛡️ فاحص أمان المواقع</h1>
 <input id="url" placeholder="example.com">
 <button id="scanbtn" onclick="scan()">افحص</button>
 <div id="result"></div>
 <small>افحص فقط المواقع التي تملك صلاحية عليها.</small>
 <script>
+const input=document.getElementById('url');
+const btn=document.getElementById('scanbtn');
+const out=document.getElementById('result');
+input.addEventListener('keydown',e=>{if(e.key==='Enter')scan();});
+
+function el(tag,cls,text){
+  const e=document.createElement(tag);
+  if(cls)e.className=cls;
+  if(text!==undefined)e.textContent=text;
+  return e;
+}
+
 async function scan(){
-  const out=document.getElementById('result');
-  out.textContent='جارٍ الفحص...';
-  const u=document.getElementById('url').value;
-  const r=await fetch('/scan?url='+encodeURIComponent(u));
-  const d=await r.json();
+  const u=input.value.trim();
+  if(!u)return;
+  btn.disabled=true;
+  btn.textContent='جارٍ الفحص...';
   out.textContent='';
-  if(d.error){out.textContent=d.error;return;}
+  try{
+    const r=await fetch('/scan?url='+encodeURIComponent(u));
+    const d=await r.json();
+    if(d.error){out.textContent=d.error;return;}
+    render(d);
+  }catch(e){
+    out.textContent='حدث خطأ بالاتصال، حاول مرة ثانية';
+  }finally{
+    btn.disabled=false;
+    btn.textContent='افحص';
+  }
+}
 
-  const meta=document.createElement('div');
-  meta.className='meta';
-  meta.textContent=d.url+' | '+new Date().toLocaleDateString('ar');
-  out.appendChild(meta);
+function render(d){
+  let host=d.url;
+  try{host=new URL(d.url).hostname;}catch(e){}
+  out.appendChild(el('div','meta host',host));
+  out.appendChild(el('div','meta',new Date().toISOString().slice(0,10)));
 
-  const s=document.createElement('div');
-  s.className='score';
-  s.textContent=d.score+'/100';
-  s.style.color=d.score>=70?'#00ff88':d.score>=40?'#f0883e':'#ff5555';
+  const good=d.score>=70, mid=d.score>=40;
+  const color=good?'#00ff88':mid?'#f0883e':'#ff5555';
+  const label=good?'مستوى أمان جيد':mid?'مستوى أمان متوسط':'مستوى أمان ضعيف';
+  const s=el('div','score',d.score+'/100');
+  s.style.color=color;
   out.appendChild(s);
+  const b=el('div','badge',label);
+  b.style.color=color;
+  out.appendChild(b);
 
-  for(const c of d.checks){
-    const row=document.createElement('div');
-    row.className='row';
-    row.textContent=(c.ok?'✅ ':'❌ ')+c.name;
-    if(!c.ok){
-      const f=document.createElement('div');
-      f.className='fix';
-      f.textContent='💡 '+c.fix;
-      row.appendChild(f);
-    }
+  const passed=d.checks.filter(c=>c.ok).length;
+  out.appendChild(el('div','sum','نجح '+passed+' من '+d.checks.length+' فحص'));
+
+  const sorted=[...d.checks].sort((a,b)=>a.ok-b.ok);
+  for(const c of sorted){
+    const row=el('div','row '+(c.ok?'ok':'bad'),(c.ok?'✅ ':'❌ ')+c.name);
+    if(!c.ok)row.appendChild(el('div','fix','💡 '+c.fix));
     out.appendChild(row);
   }
 
-  const b=document.createElement('button');
-  b.textContent='📄 حفظ التقرير PDF';
-  b.onclick=()=>window.print();
-  out.appendChild(b);
+  const p=el('button','','📄 حفظ التقرير PDF');
+  p.onclick=()=>window.print();
+  out.appendChild(p);
+  const n=el('button','sec','🔄 فحص جديد');
+  n.onclick=()=>{out.textContent='';input.value='';input.focus();};
+  out.appendChild(n);
 }
 </script>
 </body>
